@@ -47,7 +47,7 @@ jobs:
             Linux)
               EXT=""; PKG_NAME="${CRATE_NAME}-${VERSION}-linux-x86_64";;
             macOS)
-              EXT=""; PKG_NAME="${CRATE_NAME}-${VERSION}-macos-x86_64";;
+              EXT=""; PKG_NAME="${CRATE_NAME}-${VERSION}-macos-arm64";;
           esac
 
           mkdir -p "dist/$PKG_NAME"
