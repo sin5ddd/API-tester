@@ -791,12 +791,25 @@ fn brief(v: &Value) -> RichText {
 }
 
 pub fn start_app() -> eframe::Result<()> {
-    let native_options = eframe::NativeOptions { ..Default::default() };
+    // Load icon from embedded ICO and set as window icon
+    let icon = load_app_icon();
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_icon(icon),
+        ..Default::default()
+    };
     eframe::run_native(
         "API Tester",
         native_options,
         Box::new(|_cc| Box::new(AppState::default())),
     )
+}
+
+fn load_app_icon() -> egui::IconData {
+    // Embed the ICO bytes so the runtime icon is available without external files
+    let bytes = include_bytes!("../assets/icon.ico");
+    let image = image::load_from_memory(bytes).expect("icon decode").into_rgba8();
+    let (w, h) = image.dimensions();
+    egui::IconData { rgba: image.into_raw(), width: w, height: h }
 }
 
 

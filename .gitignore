@@ -1,3 +1,4 @@
 /target
 /.idea
 /profiles
+Cargo.lock

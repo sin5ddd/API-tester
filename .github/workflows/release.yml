@@ -65,7 +65,7 @@ jobs:
             exit 1
           fi
 
-          for f in README.md LICENSE docs/sample.json; do
+          for f in README.md LICENSE LICENSE-APACHE-2.0 THIRD_PARTY_LICENSES.md docs/sample.json; do
             if [ -f "$f" ]; then cp "$f" "dist/$PKG_NAME/"; fi
           done
 

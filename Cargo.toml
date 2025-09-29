@@ -19,3 +19,13 @@ url = "2"
 base64 = "0.22"
 csv = "1"
 anyhow = "1"
+image = { version = "0.25", default-features = false, features = ["ico"] }
+
+[build-dependencies]
+winres = "0.1"
+
+[package.metadata.bundle]
+name = "API Tester"
+identifier = "com.example.api-tester"
+icon = ["assets/icon.icns"]
+version = "0.1.0"
