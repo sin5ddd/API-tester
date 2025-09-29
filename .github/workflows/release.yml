@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and Release (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+          - os: ubuntu-latest
+          - os: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build (release)
+        run: cargo build --release --locked
+
+      - name: Prepare package
+        shell: bash
+        run: |
+          set -euxo pipefail
+          CRATE_NAME="api-tester"
+          BIN_NAME="API-tester"
+          VERSION="${GITHUB_REF_NAME}"
+
+          case "${{ runner.os }}" in
+            Windows)
+              EXT=".exe"; PKG_NAME="${CRATE_NAME}-${VERSION}-windows-x86_64";;
+            Linux)
+              EXT=""; PKG_NAME="${CRATE_NAME}-${VERSION}-linux-x86_64";;
+            macOS)
+              EXT=""; PKG_NAME="${CRATE_NAME}-${VERSION}-macos-x86_64";;
+          esac
+
+          mkdir -p "dist/$PKG_NAME"
+
+          # Robust binary name detection (handles case and hyphen normalization)
+          if [ -f "target/release/${BIN_NAME}${EXT}" ]; then
+            cp "target/release/${BIN_NAME}${EXT}" "dist/$PKG_NAME/"
+          elif [ -f "target/release/${CRATE_NAME}${EXT}" ]; then
+            cp "target/release/${CRATE_NAME}${EXT}" "dist/$PKG_NAME/"
+          elif [ -f "target/release/api-tester${EXT}" ]; then
+            cp "target/release/api-tester${EXT}" "dist/$PKG_NAME/"
+          else
+            echo "Binary not found in target/release; listing contents:" >&2
+            ls -la target/release || true
+            exit 1
+          fi
+
+          for f in README.md LICENSE docs/sample.json; do
+            if [ -f "$f" ]; then cp "$f" "dist/$PKG_NAME/"; fi
+          done
+
+          tar -C dist -czf "dist/$PKG_NAME.tar.gz" "$PKG_NAME"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "dist/$PKG_NAME.tar.gz" > "dist/$PKG_NAME.tar.gz.sha256"
+          else
+            shasum -a 256 "dist/$PKG_NAME.tar.gz" > "dist/$PKG_NAME.tar.gz.sha256"
+          fi
+          echo "ASSET_PATH=dist/$PKG_NAME.tar.gz" >> $GITHUB_ENV
+          echo "CHECKSUM_PATH=dist/$PKG_NAME.tar.gz.sha256" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ASSET_PATH }}
+            ${{ env.CHECKSUM_PATH }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
