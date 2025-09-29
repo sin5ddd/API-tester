@@ -1,4 +1,4 @@
-<img src="./assets/api-tester-icon.svg" style="max-width: 500px; text-align: center;" alt="API-tester icon">
+<img src="./assets/api-tester-icon.svg" style="max-width: 250px; text-align: center;" alt="API-tester icon">
 
 # API Tester (Rust + egui)
 
