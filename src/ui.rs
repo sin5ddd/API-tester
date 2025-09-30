@@ -349,7 +349,7 @@ impl AppState {
         let mut filtered: Option<Value> = None;
         if let Ok(v) = serde_json::from_str::<Value>(&self.jsonpath_result) { filtered = Some(v); }
         else if let Ok(v) = serde_json::from_str::<Value>(&self.jmespath_result) { filtered = Some(v); }
-        egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        egui::ScrollArea::vertical().auto_shrink([true; 2]).show(ui, |ui| {
             if let Some(v) = filtered.as_ref() {
                 render_value(ui, "root", v, "", true, &self.changed_ops, &self.prev_values);
             } else {
@@ -714,12 +714,10 @@ fn render_value(ui: &mut egui::Ui, label: &str, v: &Value, path: &str, diff_inli
             egui::CollapsingHeader::new(header_rt)
                 .default_open(false)
                 .show(ui, |ui| {
-                    egui::ScrollArea::vertical().auto_shrink([false;2]).show(ui, |ui| {
-                        for (i, item) in arr.iter().enumerate() {
-                            let child_path = if path.is_empty() { format!("/{}", i) } else { format!("{}/{}", path, i) };
-                            render_value(ui, &format!("[{}]", i), item, &child_path, diff_inline, changed_ops, prev_values);
-                        }
-                    });
+                    for (i, item) in arr.iter().enumerate() {
+                        let child_path = if path.is_empty() { format!("/{i}") } else { format!("{path}/{i}") };
+                        render_value(ui, &format!("[{i}]"), item, &child_path, diff_inline, changed_ops, prev_values);
+                    }
                 });
         }
         Value::Object(map) => {
@@ -730,7 +728,7 @@ fn render_value(ui: &mut egui::Ui, label: &str, v: &Value, path: &str, diff_inli
                 else if has_descendant_change(path, changed_ops) { header_rt = header_rt.italics(); }
             }
             egui::CollapsingHeader::new(header_rt)
-                .default_open(true)
+                .default_open(false)
                 .show(ui, |ui| {
                     for (k, val) in map.iter() {
                         let seg = escape_pointer_segment(k);
