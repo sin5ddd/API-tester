@@ -4,14 +4,61 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and the project adheres to Semantic Versioning.
 
-## [Unreleased]
+## [v0.1.2] - 2025-09-30
+### Added
+- JSON tree root node now automatically expands when receiving a response for easier immediate access
+- Profiles are now stored in user home directory instead of binary directory
+    - Windows: `%USERPROFILE%\.api-tester\profiles\`
+    - Mac/Linux: `~/.api-tester/profiles/`
+- Automatic migration: existing profiles in binary directory are automatically moved to home directory on first launch
+- Console window is now hidden on Windows (release builds only; visible in debug builds for debugging)
+- Typed form fields with proper JSON type preservation
+    - Support for 6 data types: String, Int, Float, Bool, Array, Object
+    - Type selector dropdown for each field
+    - Numeric values (Int/Float) are no longer escaped with double quotes in JSON
+    - Boolean values are properly converted to JSON true/false
+    - Array and Object types support nested child fields with recursive structure
+    - "+ Add child" button for adding nested fields to Array/Object types
+    - Visual indentation for nested structures (20px per level)
+    - Automatic type detection when switching from JSON to Form mode
+- Advanced JSON editor with syntax highlighting
+  - Replaced basic TextEdit with `egui_code_editor` for JSON body editing
+  - Syntax highlighting with GRUVBOX color theme
+  - Line numbers display
+  - 12-row editor with font size 14
+  - "Format JSON" button for one-click JSON formatting/prettification
+- Content-Type selector in Headers section
+  - ComboBox dropdown with 5 common Content-Type options:
+    - application/json (default)
+    - application/x-www-form-urlencoded
+    - text/plain
+    - application/xml
+    - multipart/form-data
+  - Automatically updates Content-Type header in headers text field when changed
+
 ### Changed
 - Migrated from egui 0.27 to egui 0.32.3
-  - Updated eframe, egui, and egui_extras dependencies to version 0.32.3
-  - Fixed app creation callback to return `Result` type as required by new eframe API
-  - Replaced deprecated `CollapsingHeader::id_source` with `id_salt`
-  - Refactored irrefutable pattern matching for improved code clarity
-  - All existing functionality preserved; no breaking changes to user features
+    - Updated eframe, egui, and egui_extras dependencies to version 0.32.3
+    - Fixed app creation callback to return `Result` type as required by new eframe API
+    - Replaced deprecated `CollapsingHeader::id_source` with `id_salt`
+    - Refactored irrefutable pattern matching for improved code clarity
+    - All existing functionality preserved; no breaking changes to user features
+
+- Profiles panel now uses auto-shrink behavior
+  - Changed from fixed max_height(220.0) to auto_shrink([false, true])
+  - Panel automatically expands/contracts based on number of projects and profiles
+  - Better screen space utilization
+- Headers section now starts collapsed by default
+  - Changed from `ui.collapsing()` to `CollapsingHeader::default_open(false)`
+  - Reduces visual clutter on startup
+
+### Fixed
+- **Form key=value mode now respects Headers' Content-Type setting**
+  - Previously, Form mode always sent data as `application/x-www-form-urlencoded` regardless of Headers
+  - Now checks Headers for Content-Type and formats body accordingly:
+    - If `Content-Type: application/json` is set in Headers, form fields are converted to JSON format
+    - Otherwise, uses form-urlencoded format as before
+  - Headers information is now properly enforced in all body modes
 
 ## [v0.1.0] - 2025-09-29
 ### Added

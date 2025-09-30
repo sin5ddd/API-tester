@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use anyhow::Result;
 use base64::Engine;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::time::Duration;
 
 // ===== Models =====
@@ -90,7 +90,7 @@ pub fn compute_diffs(prev: Option<&Value>, curr: Option<&Value>) -> (Option<Stri
 }
 
 pub fn make_side_by_side_diff(a: &str, b: &str) -> String {
-    use similar::{TextDiff, ChangeTag};
+    use similar::{ChangeTag, TextDiff};
     let diff = TextDiff::from_lines(a, b);
     let mut out = String::new();
     for op in diff.ops() {
@@ -159,13 +159,22 @@ pub fn chrono_like_now() -> String {
 
 // ===== Profiles persistence (Project-based) =====
 // Directory layout:
-//   ./profiles/<project_name>/<profile_name>.json
+//   Windows: %USERPROFILE%\.api-tester\profiles\<project_name>\<profile_name>.json
+//   Mac/Linux: ~/.api-tester/profiles/<project_name>/<profile_name>.json
 // Legacy file ./profiles.json is still readable via load_profiles_from_legacy().
 
 pub fn profiles_root_dir() -> std::path::PathBuf {
-    let mut p = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    p.push("profiles");
-    p
+    if let Some(home) = dirs::home_dir() {
+        let mut p = home;
+        p.push(".api-tester");
+        p.push("profiles");
+        p
+    } else {
+        // Fallback to current directory if home directory cannot be determined
+        let mut p = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        p.push("profiles");
+        p
+    }
 }
 
 pub fn ensure_dir(path: &std::path::Path) -> std::io::Result<()> {
@@ -351,5 +360,54 @@ pub fn rename_profile(project: &str, old_name: &str, new_name: &str) -> Result<(
     if oldp.exists() {
         std::fs::rename(oldp, newp)?;
     }
+    Ok(())
+}
+
+// === Profile migration from binary directory to home directory ===
+pub fn old_profiles_root_dir() -> std::path::PathBuf {
+    let mut p = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    p.push("profiles");
+    p
+}
+
+pub fn migrate_profiles_to_home() -> Result<()> {
+    let old_root = old_profiles_root_dir();
+    let new_root = profiles_root_dir();
+    
+    // Skip if old directory doesn't exist or if old and new are the same
+    if !old_root.exists() || old_root == new_root {
+        return Ok(());
+    }
+    
+    // Ensure new directory exists
+    ensure_dir(&new_root)?;
+    
+    // Copy all contents from old to new
+    copy_dir_recursive(&old_root, &new_root)?;
+    
+    // After successful copy, remove old directory
+    std::fs::remove_dir_all(&old_root)?;
+    
+    Ok(())
+}
+
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
+    if !dst.exists() {
+        std::fs::create_dir_all(dst)?;
+    }
+    
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let file_name = entry.file_name();
+        let dst_path = dst.join(file_name);
+        
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    
     Ok(())
 }

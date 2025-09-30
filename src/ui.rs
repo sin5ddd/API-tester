@@ -1,21 +1,48 @@
-use eframe::{egui, egui::{TextEdit, RichText, Color32}};
+use eframe::{egui, egui::{Color32, RichText, TextEdit}};
+use egui_code_editor::CodeEditor;
 use serde_json::Value;
 use std::time::Instant;
 
+use crate::comm::{self, UiMessage, UserAction};
 use crate::data::{self, AuthConfig, AuthType, Method, RequestProfile};
-use crate::comm::{self, UserAction, UiMessage};
 
 #[derive(Clone, Copy, PartialEq)]
 enum BodyMode { Json, Form }
 
-#[derive(Clone, Default)]
-struct FormField { enabled: bool, name: String, value: String }
+#[derive(Clone, Copy, PartialEq)]
+enum FieldType { String, Int, Float, Bool, Array, Object }
+
+impl Default for FieldType {
+    fn default() -> Self { FieldType::String }
+}
+
+#[derive(Clone)]
+struct FormField {
+    enabled: bool,
+    name: String,
+    value: String,
+    field_type: FieldType,
+    children: Vec<FormField>, // For Array/Object nested fields
+}
+
+impl Default for FormField {
+    fn default() -> Self {
+        FormField {
+            enabled: true,
+            name: String::new(),
+            value: String::new(),
+            field_type: FieldType::String,
+            children: Vec::new(),
+        }
+    }
+}
 
 pub struct AppState {
     // Request
     url: String,
     method: Method,
     headers_text: String,
+    content_type: String,
     body_text: String,
     body_mode: BodyMode,
     form_fields: Vec<FormField>,
@@ -84,9 +111,10 @@ impl Default for AppState {
             url: "https://httpbin.org/get".into(),
             method: Method::GET,
             headers_text: "User-Agent: api-tester\nAccept: application/json".into(),
+            content_type: "application/json".into(),
             body_text: "{\n  \"hello\": \"world\"\n}".into(),
             body_mode: BodyMode::Json,
-            form_fields: vec![FormField { enabled: true, name: String::new(), value: String::new() }],
+            form_fields: vec![FormField::default()],
             auth: AuthConfig::default(),
             prev_response: None,
             response: None,
@@ -215,7 +243,24 @@ impl eframe::App for AppState {
                 ui.heading("Request");
                 egui::ScrollArea::vertical().auto_shrink([false;2]).show(ui, |ui| {
                 ui.collapsing("Auth", |ui| { self.ui_auth(ui); });
-                ui.collapsing("Headers", |ui| {
+                egui::CollapsingHeader::new("Headers").default_open(false).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Content-Type:");
+                        let prev_content_type = self.content_type.clone();
+                        egui::ComboBox::from_id_salt("content_type_combo")
+                            .selected_text(&self.content_type)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.content_type, "application/json".to_string(), "application/json");
+                                ui.selectable_value(&mut self.content_type, "application/x-www-form-urlencoded".to_string(), "application/x-www-form-urlencoded");
+                                ui.selectable_value(&mut self.content_type, "text/plain".to_string(), "text/plain");
+                                ui.selectable_value(&mut self.content_type, "application/xml".to_string(), "application/xml");
+                                ui.selectable_value(&mut self.content_type, "multipart/form-data".to_string(), "multipart/form-data");
+                            });
+                        // Update headers_text if content_type changed
+                        if self.content_type != prev_content_type {
+                            self.update_content_type_header();
+                        }
+                    });
                     ui.add_sized([ui.available_width(), 100.0], TextEdit::multiline(&mut self.headers_text).code_editor());
                 });
                 match self.method {
@@ -235,7 +280,21 @@ impl eframe::App for AppState {
                         }
                         match self.body_mode {
                             BodyMode::Json => {
-                                ui.add_sized([ui.available_width(), 120.0], TextEdit::multiline(&mut self.body_text).code_editor());
+                                ui.horizontal(|ui| {
+                                    if ui.button("Format JSON").clicked() {
+                                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&self.body_text) {
+                                            if let Ok(formatted) = serde_json::to_string_pretty(&v) {
+                                                self.body_text = formatted;
+                                            }
+                                        }
+                                    }
+                                });
+                                CodeEditor::default()
+                                    .with_rows(12)
+                                    .with_fontsize(14.0)
+                                    .with_theme(egui_code_editor::ColorTheme::GRUVBOX)
+                                    .with_numlines(true)
+                                    .show(ui, &mut self.body_text);
                             }
                             BodyMode::Form => {
                                 self.ui_form_editor(ui);
@@ -286,17 +345,34 @@ impl AppState {
                 match self.body_mode {
                     BodyMode::Json => Some(self.body_text.clone()),
                     BodyMode::Form => {
-                        let mut serializer = url::form_urlencoded::Serializer::new(String::new());
-                        for f in &self.form_fields {
-                            if f.enabled && !f.name.trim().is_empty() {
-                                serializer.append_pair(f.name.trim(), &f.value);
+                        // Check if Headers contain Content-Type: application/json
+                        let has_json_content_type = headers.iter()
+                            .any(|(k, v)| k.eq_ignore_ascii_case("Content-Type") && v.contains("application/json"));
+                        
+                        if has_json_content_type {
+                            // Convert form fields to JSON format
+                            let mut obj = serde_json::Map::new();
+                            for f in &self.form_fields {
+                                if f.enabled && !f.name.trim().is_empty() {
+                                    obj.insert(f.name.trim().to_string(), serde_json::Value::String(f.value.clone()));
+                                }
                             }
+                            Some(serde_json::to_string(&obj).unwrap_or_default())
+                        } else {
+                            // Use form-urlencoded format
+                            let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+                            for f in &self.form_fields {
+                                if f.enabled && !f.name.trim().is_empty() {
+                                    serializer.append_pair(f.name.trim(), &f.value);
+                                }
+                            }
+                            let encoded = serializer.finish();
+                            // Only add Content-Type if not already present
+                            if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("Content-Type")) {
+                                headers.push(("Content-Type".into(), "application/x-www-form-urlencoded".into()));
+                            }
+                            Some(encoded)
                         }
-                        let encoded = serializer.finish();
-                        if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("Content-Type")) {
-                            headers.push(("Content-Type".into(), "application/x-www-form-urlencoded".into()));
-                        }
-                        Some(encoded)
                     }
                 }
             }
@@ -307,6 +383,29 @@ impl AppState {
             headers,
             body,
         });
+    }
+
+    fn update_content_type_header(&mut self) {
+        // Parse existing headers and update/add Content-Type
+        let mut lines: Vec<String> = self.headers_text.lines().map(|s| s.to_string()).collect();
+        let mut found = false;
+        
+        // Look for existing Content-Type header and replace it
+        for line in lines.iter_mut() {
+            let trimmed = line.trim();
+            if trimmed.to_lowercase().starts_with("content-type:") {
+                *line = format!("Content-Type: {}", self.content_type);
+                found = true;
+                break;
+            }
+        }
+        
+        // If not found, add it
+        if !found {
+            lines.push(format!("Content-Type: {}", self.content_type));
+        }
+        
+        self.headers_text = lines.join("\n");
     }
 
     fn ui_raw(&self, ui: &mut egui::Ui) {
@@ -425,7 +524,7 @@ impl AppState {
             }
             if ui.button("Refresh").clicked() { self.refresh_projects(); }
         });
-        egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+        egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
             let projects = data::list_projects().unwrap_or_default();
             for p in projects {
                 let header = format!("📁 {}", p);
@@ -710,8 +809,10 @@ fn render_value(ui: &mut egui::Ui, label: &str, v: &Value, path: &str, diff_inli
                 if let Some(op) = changed_ops.get(path) { header_rt = header_rt.color(op_color(op)); }
                 else if has_descendant_change(path, changed_ops) { header_rt = header_rt.italics(); }
             }
+            // Auto-expand root level (path is empty)
+            let is_root = path.is_empty();
             egui::CollapsingHeader::new(header_rt)
-                .default_open(false)
+                .default_open(is_root)
                 .show(ui, |ui| {
                     for (i, item) in arr.iter().enumerate() {
                         let child_path = if path.is_empty() { format!("/{i}") } else { format!("{path}/{i}") };
@@ -726,8 +827,10 @@ fn render_value(ui: &mut egui::Ui, label: &str, v: &Value, path: &str, diff_inli
                 if let Some(op) = changed_ops.get(path) { header_rt = header_rt.color(op_color(op)); }
                 else if has_descendant_change(path, changed_ops) { header_rt = header_rt.italics(); }
             }
+            // Auto-expand root level (path is empty)
+            let is_root = path.is_empty();
             egui::CollapsingHeader::new(header_rt)
-                .default_open(false)
+                .default_open(is_root)
                 .show(ui, |ui| {
                     for (k, val) in map.iter() {
                         let seg = escape_pointer_segment(k);
@@ -788,6 +891,9 @@ fn brief(v: &Value) -> RichText {
 }
 
 pub fn start_app() -> eframe::Result<()> {
+    // Migrate profiles from binary directory to home directory if needed
+    let _ = data::migrate_profiles_to_home();
+    
     // Load icon from embedded ICO and set as window icon
     let icon = load_app_icon();
     let native_options = eframe::NativeOptions {
@@ -814,30 +920,90 @@ impl AppState {
     fn ui_form_editor(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             if ui.button("+ Add").clicked() {
-                self.form_fields.push(FormField { enabled: true, name: String::new(), value: String::new() });
+                self.form_fields.push(FormField::default());
             }
             if ui.button("Clear").clicked() {
                 self.form_fields.clear();
             }
         });
-        for i in 0..self.form_fields.len() {
+        
+        // Recursive rendering helper
+        fn render_field(ui: &mut egui::Ui, field: &mut FormField, indent: usize) -> bool {
             let mut to_remove = false;
-            let row = &mut self.form_fields[i];
             ui.horizontal(|ui| {
-                ui.checkbox(&mut row.enabled, "");
-                ui.add_sized([150.0, 22.0], TextEdit::singleline(&mut row.name).hint_text("name"));
-                ui.label("=");
-                let avail = ui.available_width() - 40.0; // leave some room for the delete button
-                let w = if avail > 160.0 { avail } else { 160.0 };
-                ui.add_sized([w, 22.0], TextEdit::singleline(&mut row.value).hint_text("value"));
-                if ui.button("✕").clicked() { to_remove = true; }
+                // Indentation for nested fields
+                ui.add_space((indent * 20) as f32);
+                
+                ui.checkbox(&mut field.enabled, "");
+                ui.add_sized([120.0, 22.0], TextEdit::singleline(&mut field.name).hint_text("name"));
+                
+                // Type selector
+                let type_text = match field.field_type {
+                    FieldType::String => "String",
+                    FieldType::Int => "Int",
+                    FieldType::Float => "Float",
+                    FieldType::Bool => "Bool",
+                    FieldType::Array => "Array",
+                    FieldType::Object => "Object",
+                };
+                egui::ComboBox::from_id_salt(format!("type_{:p}", field as *const _))
+                    .selected_text(type_text)
+                    .width(70.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut field.field_type, FieldType::String, "String");
+                        ui.selectable_value(&mut field.field_type, FieldType::Int, "Int");
+                        ui.selectable_value(&mut field.field_type, FieldType::Float, "Float");
+                        ui.selectable_value(&mut field.field_type, FieldType::Bool, "Bool");
+                        ui.selectable_value(&mut field.field_type, FieldType::Array, "Array");
+                        ui.selectable_value(&mut field.field_type, FieldType::Object, "Object");
+                    });
+                
+                // Value field (only for non-container types)
+                if field.field_type != FieldType::Array && field.field_type != FieldType::Object {
+                    ui.label("=");
+                    let avail = ui.available_width() - 40.0;
+                    let w = if avail > 100.0 { avail } else { 100.0 };
+                    ui.add_sized([w, 22.0], TextEdit::singleline(&mut field.value).hint_text("value"));
+                }
+                
+                if ui.button("✕").clicked() {
+                    to_remove = true;
+                }
             });
-            if to_remove { self.form_fields.remove(i); break; }
+            to_remove
         }
+        
+        fn render_field_recursive(ui: &mut egui::Ui, fields: &mut Vec<FormField>, indent: usize) {
+            let mut i = 0;
+            while i < fields.len() {
+                let to_remove = render_field(ui, &mut fields[i], indent);
+                if to_remove {
+                    fields.remove(i);
+                    continue;
+                }
+                
+                // Render children for Array/Object types
+                let field = &mut fields[i];
+                if field.field_type == FieldType::Array || field.field_type == FieldType::Object {
+                    ui.horizontal(|ui| {
+                        ui.add_space(((indent + 1) * 20) as f32);
+                        if ui.button("+ Add child").clicked() {
+                            field.children.push(FormField::default());
+                        }
+                    });
+                    render_field_recursive(ui, &mut field.children, indent + 1);
+                }
+                
+                i += 1;
+            }
+        }
+        
+        render_field_recursive(ui, &mut self.form_fields, 0);
+        
         if self.form_fields.is_empty() {
             ui.label(RichText::new("No fields. Click + Add to insert a row.").italics().color(Color32::GRAY));
         }
-        ui.label(RichText::new("Will send as application/x-www-form-urlencoded").small().color(Color32::GRAY));
+        ui.label(RichText::new("Typed form fields - types will be preserved in JSON").small().color(Color32::GRAY));
         // Keep Body JSON in sync with current form fields
         self.update_body_from_form();
     }
@@ -845,7 +1011,71 @@ impl AppState {
 
 impl AppState {
     fn update_form_from_body(&mut self) {
-        // Try JSON first
+        fn value_to_field(name: String, val: &Value) -> FormField {
+            match val {
+                Value::String(s) => FormField {
+                    enabled: true,
+                    name,
+                    value: s.clone(),
+                    field_type: FieldType::String,
+                    children: Vec::new(),
+                },
+                Value::Number(n) => {
+                    let field_type = if n.is_i64() || n.is_u64() {
+                        FieldType::Int
+                    } else {
+                        FieldType::Float
+                    };
+                    FormField {
+                        enabled: true,
+                        name,
+                        value: n.to_string(),
+                        field_type,
+                        children: Vec::new(),
+                    }
+                }
+                Value::Bool(b) => FormField {
+                    enabled: true,
+                    name,
+                    value: b.to_string(),
+                    field_type: FieldType::Bool,
+                    children: Vec::new(),
+                },
+                Value::Array(arr) => {
+                    let children: Vec<FormField> = arr.iter()
+                        .enumerate()
+                        .map(|(i, elem)| value_to_field(format!("[{}]", i), elem))
+                        .collect();
+                    FormField {
+                        enabled: true,
+                        name,
+                        value: String::new(),
+                        field_type: FieldType::Array,
+                        children,
+                    }
+                }
+                Value::Object(map) => {
+                    let children: Vec<FormField> = map.iter()
+                        .map(|(k, v)| value_to_field(k.clone(), v))
+                        .collect();
+                    FormField {
+                        enabled: true,
+                        name,
+                        value: String::new(),
+                        field_type: FieldType::Object,
+                        children,
+                    }
+                }
+                Value::Null => FormField {
+                    enabled: true,
+                    name,
+                    value: String::new(),
+                    field_type: FieldType::String,
+                    children: Vec::new(),
+                },
+            }
+        }
+
         let txt = self.body_text.trim();
         let mut rows: Vec<FormField> = Vec::new();
         if !txt.is_empty() {
@@ -853,68 +1083,91 @@ impl AppState {
                 match v {
                     Value::Object(map) => {
                         for (k, val) in map {
-                            match val {
-                                Value::Array(arr) => {
-                                    // Expand arrays as repeated keys (stringify elements)
-                                    for elem in arr {
-                                        let vstr = match &elem {
-                                            Value::String(s) => s.clone(),
-                                            Value::Number(n) => n.to_string(),
-                                            Value::Bool(b) => b.to_string(),
-                                            Value::Null => String::new(),
-                                            _ => serde_json::to_string(&elem).unwrap_or_default(),
-                                        };
-                                        rows.push(FormField{ enabled: true, name: k.clone(), value: vstr });
-                                    }
-                                }
-                                other => {
-                                    let vstr = match &other {
-                                        Value::String(s) => s.clone(),
-                                        Value::Number(n) => n.to_string(),
-                                        Value::Bool(b) => b.to_string(),
-                                        Value::Null => String::new(),
-                                        _ => serde_json::to_string(&other).unwrap_or_default(),
-                                    };
-                                    rows.push(FormField{ enabled: true, name: k.clone(), value: vstr });
-                                }
-                            }
+                            rows.push(value_to_field(k, &val));
                         }
                     }
                     _ => {
-                        // Non-object JSON not suitable for form pairs; fall back to URL-encoded parsing
+                        // Non-object JSON not suitable for form pairs
                     }
                 }
             }
             if rows.is_empty() {
-                // Try URL-encoded key=value pairs
+                // Try URL-encoded key=value pairs (all treated as strings)
                 for (k, v) in url::form_urlencoded::parse(txt.as_bytes()) {
-                    rows.push(FormField{ enabled: true, name: k.to_string(), value: v.to_string() });
+                    rows.push(FormField {
+                        enabled: true,
+                        name: k.to_string(),
+                        value: v.to_string(),
+                        field_type: FieldType::String,
+                        children: Vec::new(),
+                    });
                 }
             }
         }
         if rows.is_empty() {
             self.form_fields.clear();
-            self.form_fields.push(FormField { enabled: true, name: String::new(), value: String::new() });
+            self.form_fields.push(FormField::default());
         } else {
             self.form_fields = rows;
         }
     }
 
     fn update_body_from_form(&mut self) {
-        use std::collections::BTreeMap;
-        let mut multimap: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for f in &self.form_fields {
-            let name = f.name.trim();
-            if f.enabled && !name.is_empty() {
-                multimap.entry(name.to_string()).or_default().push(f.value.clone());
+        fn field_to_value(field: &FormField) -> Option<Value> {
+            if !field.enabled {
+                return None;
+            }
+            match field.field_type {
+                FieldType::String => Some(Value::String(field.value.clone())),
+                FieldType::Int => {
+                    if let Ok(n) = field.value.parse::<i64>() {
+                        Some(Value::Number(n.into()))
+                    } else {
+                        Some(Value::String(field.value.clone())) // fallback to string if parse fails
+                    }
+                }
+                FieldType::Float => {
+                    if let Ok(f) = field.value.parse::<f64>() {
+                        if let Some(n) = serde_json::Number::from_f64(f) {
+                            Some(Value::Number(n))
+                        } else {
+                            Some(Value::String(field.value.clone()))
+                        }
+                    } else {
+                        Some(Value::String(field.value.clone()))
+                    }
+                }
+                FieldType::Bool => {
+                    let lower = field.value.trim().to_lowercase();
+                    Some(Value::Bool(lower == "true" || lower == "1"))
+                }
+                FieldType::Array => {
+                    let arr: Vec<Value> = field.children.iter()
+                        .filter_map(|child| field_to_value(child))
+                        .collect();
+                    Some(Value::Array(arr))
+                }
+                FieldType::Object => {
+                    let mut obj = serde_json::Map::new();
+                    for child in &field.children {
+                        if child.enabled && !child.name.trim().is_empty() {
+                            if let Some(val) = field_to_value(child) {
+                                obj.insert(child.name.clone(), val);
+                            }
+                        }
+                    }
+                    Some(Value::Object(obj))
+                }
             }
         }
+
         let mut obj = serde_json::Map::new();
-        for (k, vals) in multimap.into_iter() {
-            if vals.len() == 1 {
-                obj.insert(k, Value::String(vals[0].clone()));
-            } else {
-                obj.insert(k, Value::Array(vals.into_iter().map(Value::String).collect()));
+        for field in &self.form_fields {
+            let name = field.name.trim();
+            if field.enabled && !name.is_empty() {
+                if let Some(val) = field_to_value(field) {
+                    obj.insert(name.to_string(), val);
+                }
             }
         }
         let v = Value::Object(obj);
