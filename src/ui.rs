@@ -133,7 +133,7 @@ impl Default for AppState {
 }
 
 impl eframe::App for AppState {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.compact_ui {
             let mut style = (*ctx.style()).clone();
             style.spacing.item_spacing = egui::vec2(4.0, 4.0);
@@ -157,17 +157,16 @@ impl eframe::App for AppState {
 
         // Receive responses
         while let Ok(msg) = self.rx_ui.try_recv() {
-            if let UiMessage::Response { status_line, raw, parsed, elapsed_ms } = msg {
-                self.status_line = status_line;
-                self.elapsed_ms = Some(elapsed_ms);
+            let UiMessage::Response { status_line, raw, parsed, elapsed_ms } = msg;
+            self.status_line = status_line;
+            self.elapsed_ms = Some(elapsed_ms);
 
-                self.prev_response = self.response.take();
-                self.response = parsed;
-                self.raw_response = raw;
+            self.prev_response = self.response.take();
+            self.response = parsed;
+            self.raw_response = raw;
 
-                self.update_diffs();
-                self.update_search_results();
-            }
+            self.update_diffs();
+            self.update_search_results();
         }
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
@@ -431,7 +430,7 @@ impl AppState {
             for p in projects {
                 let header = format!("📁 {}", p);
                 egui::CollapsingHeader::new(RichText::new(header).strong())
-                    .id_source(format!("proj_hdr_{}", p))
+                    .id_salt(format!("proj_hdr_{}", p))
                     .default_open(self.current_project == p)
                     .show(ui, |ui| {
                         let profiles = data::list_profiles(&p).unwrap_or_default();
@@ -798,7 +797,7 @@ pub fn start_app() -> eframe::Result<()> {
     eframe::run_native(
         "API Tester",
         native_options,
-        Box::new(|_cc| Box::new(AppState::default())),
+        Box::new(|_cc| Ok(Box::new(AppState::default()))),
     )
 }
 

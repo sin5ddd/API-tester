@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and the project adheres to Semantic Versioning.
 
+## [Unreleased]
+### Changed
+- Migrated from egui 0.27 to egui 0.32.3
+  - Updated eframe, egui, and egui_extras dependencies to version 0.32.3
+  - Fixed app creation callback to return `Result` type as required by new eframe API
+  - Replaced deprecated `CollapsingHeader::id_source` with `id_salt`
+  - Refactored irrefutable pattern matching for improved code clarity
+  - All existing functionality preserved; no breaking changes to user features
+
 ## [v0.1.0] - 2025-09-29
 ### Added
 - Initial release of a native GUI (eframe/egui) REST API tester.
