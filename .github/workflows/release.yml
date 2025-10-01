@@ -69,14 +69,27 @@ jobs:
             if [ -f "$f" ]; then cp "$f" "dist/$PKG_NAME/"; fi
           done
 
-          tar -C dist -czf "dist/$PKG_NAME.tar.gz" "$PKG_NAME"
+          # Package based on OS - use .zip for Windows and macOS, .tar.gz for Linux
+          case "${{ runner.os }}" in
+            Windows|macOS)
+              cd dist
+              zip -r "$PKG_NAME.zip" "$PKG_NAME"
+              cd ..
+              ARCHIVE_EXT=".zip"
+              ;;
+            Linux)
+              tar -C dist -czf "dist/$PKG_NAME.tar.gz" "$PKG_NAME"
+              ARCHIVE_EXT=".tar.gz"
+              ;;
+          esac
+          
           if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "dist/$PKG_NAME.tar.gz" > "dist/$PKG_NAME.tar.gz.sha256"
+            sha256sum "dist/$PKG_NAME$ARCHIVE_EXT" > "dist/$PKG_NAME$ARCHIVE_EXT.sha256"
           else
-            shasum -a 256 "dist/$PKG_NAME.tar.gz" > "dist/$PKG_NAME.tar.gz.sha256"
+            shasum -a 256 "dist/$PKG_NAME$ARCHIVE_EXT" > "dist/$PKG_NAME$ARCHIVE_EXT.sha256"
           fi
-          echo "ASSET_PATH=dist/$PKG_NAME.tar.gz" >> $GITHUB_ENV
-          echo "CHECKSUM_PATH=dist/$PKG_NAME.tar.gz.sha256" >> $GITHUB_ENV
+          echo "ASSET_PATH=dist/$PKG_NAME$ARCHIVE_EXT" >> $GITHUB_ENV
+          echo "CHECKSUM_PATH=dist/$PKG_NAME$ARCHIVE_EXT.sha256" >> $GITHUB_ENV
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

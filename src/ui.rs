@@ -350,11 +350,46 @@ impl AppState {
                             .any(|(k, v)| k.eq_ignore_ascii_case("Content-Type") && v.contains("application/json"));
                         
                         if has_json_content_type {
-                            // Convert form fields to JSON format
+                            // Convert form fields to JSON format with proper type preservation
                             let mut obj = serde_json::Map::new();
                             for f in &self.form_fields {
                                 if f.enabled && !f.name.trim().is_empty() {
-                                    obj.insert(f.name.trim().to_string(), serde_json::Value::String(f.value.clone()));
+                                    let val = match f.field_type {
+                                        FieldType::String => serde_json::Value::String(f.value.clone()),
+                                        FieldType::Int => {
+                                            if let Ok(n) = f.value.parse::<i64>() {
+                                                serde_json::Value::Number(n.into())
+                                            } else {
+                                                serde_json::Value::String(f.value.clone())
+                                            }
+                                        }
+                                        FieldType::Float => {
+                                            if let Ok(fl) = f.value.parse::<f64>() {
+                                                if let Some(n) = serde_json::Number::from_f64(fl) {
+                                                    serde_json::Value::Number(n)
+                                                } else {
+                                                    serde_json::Value::String(f.value.clone())
+                                                }
+                                            } else {
+                                                serde_json::Value::String(f.value.clone())
+                                            }
+                                        }
+                                        FieldType::Bool => {
+                                            let lower = f.value.trim().to_lowercase();
+                                            serde_json::Value::Bool(lower == "true" || lower == "1")
+                                        }
+                                        FieldType::Array => {
+                                            // For nested arrays in form mode, would need recursive handling
+                                            // For now, treat as string representation
+                                            serde_json::Value::String(f.value.clone())
+                                        }
+                                        FieldType::Object => {
+                                            // For nested objects in form mode, would need recursive handling
+                                            // For now, treat as string representation
+                                            serde_json::Value::String(f.value.clone())
+                                        }
+                                    };
+                                    obj.insert(f.name.trim().to_string(), val);
                                 }
                             }
                             Some(serde_json::to_string(&obj).unwrap_or_default())

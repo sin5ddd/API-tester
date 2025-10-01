@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and the project adheres to Semantic Versioning.
 
+## [v0.1.3] - 2025-10-01
+### Fixed
+- **Form field value types now properly preserved when sending requests**
+  - Previously, when using Form mode with Content-Type: application/json, all field values were converted to strings regardless of their type selector (Float, Int, Bool)
+  - Now respects the type selector for each field:
+    - Int fields are sent as JSON numbers (integer)
+    - Float fields are sent as JSON numbers (floating-point)
+    - Bool fields are sent as JSON booleans (true/false)
+    - String fields remain as JSON strings
+  - Invalid numeric values gracefully fall back to string representation
+  - This fix ensures APIs receive correctly typed data instead of everything as strings
+
 ## [v0.1.2] - 2025-09-30
 ### Added
 - JSON tree root node now automatically expands when receiving a response for easier immediate access

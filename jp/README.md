@@ -1,3 +1,5 @@
+![API Tester Icon](../assets/api-tester-icon.jpg)
+
 # API Tester (Rust + egui)
 
 軽量・高速なネイティブ GUI で REST API をテスト・可視化するツールです。巨大ではない（〜1MB）JSON を前提に `serde` で扱い、ツリー表示・インライン差分・クエリ（JSONPath/JMESPath）など、開発時の検証に便利な機能を詰め込んでいます。
@@ -26,7 +28,7 @@
   - Run すると結果がツリーにフィルタ適用され、そのまま展開・閲覧
 - 検索（プレーンテキスト）: 整形 JSON の該当行を表示
 - プロファイル管理（プロジェクト/フォルダ毎）:
-  - 保存場所: `./profiles/<project>/<profile>.json`
+  - 保存場所: ユーザーホームディレクトリ（Windows: `%USERPROFILE%\.api-tester\profiles\`、Mac/Linux: `~/.api-tester/profiles/`）
   - フォルダ風エクスプローラ UI（プロジェクト=フォルダ、プロファイル=ファイル）
   - 新規/保存/上書き/読み込み/削除/リネーム（プロジェクト・プロファイル）
 - cURL インポート: method/url/headers/body を簡易解析して適用
@@ -50,7 +52,7 @@
 
 ## インストール
 - GitHub Releases から OS に合ったアーカイブをダウンロード・展開してください。
-  - 例: `api-tester-v0.1.0-windows-x86_64.tar.gz`
+  - 例: `api-tester-v0.1.0-windows-x86_64.zip` (Windows/macOS)、`api-tester-v0.1.0-linux-x86_64.tar.gz` (Linux)
 - Windows では MSVC ランタイムが必要になる場合があります。起動しない場合は Visual C++ 再頒布可能パッケージの導入を検討してください。
 
 ## 自動リリース（GitHub Actions + タグ）
@@ -73,7 +75,7 @@ git push origin v0.1.0
 CI の流れ:
 - Windows / Linux / macOS でリリースビルド
 - バイナリ（`API-tester` / `API-tester.exe` など）と同梱ファイル（README / LICENSE / docs/sample.json があれば）をパッケージ化
-- アーカイブ（tar.gz）と SHA256 チェックサムを作成
+- アーカイブ（Windows/macOS: `.zip`、Linux: `.tar.gz`）と SHA256 チェックサムを作成
 - 対応する GitHub Release にアセットを自動添付
 
 注: Cargo.toml のパッケージ名は `API-tester` ですが、ワークフローは大小文字/ハイフン差異を考慮してバイナリ名を検出するようになっています。
