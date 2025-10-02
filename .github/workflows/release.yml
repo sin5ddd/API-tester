@@ -71,7 +71,12 @@ jobs:
 
           # Package based on OS - use .zip for Windows and macOS, .tar.gz for Linux
           case "${{ runner.os }}" in
-            Windows|macOS)
+            Windows)
+              # Use PowerShell for Windows (zip command not available in Git Bash)
+              powershell -Command "Compress-Archive -Path dist/$PKG_NAME -DestinationPath dist/$PKG_NAME.zip"
+              ARCHIVE_EXT=".zip"
+              ;;
+            macOS)
               cd dist
               zip -r "$PKG_NAME.zip" "$PKG_NAME"
               cd ..
