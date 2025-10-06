@@ -338,7 +338,22 @@ impl eframe::App for AppState {
 
 impl AppState {
     fn send_current_request(&self) {
+        // Normalize URL: add http:// if no scheme present
+        let normalized_url = if !self.url.starts_with("http://") && !self.url.starts_with("https://") {
+            format!("http://{}", self.url)
+        } else {
+            self.url.clone()
+        };
+
         let mut headers = data::build_headers(&self.auth, &self.headers_text);
+
+        // Handle .localhost domains by rewriting to 127.0.0.1 with Host header
+        let (final_url, additional_host_header) = Self::rewrite_localhost_url(&normalized_url);
+        if let Some(host) = additional_host_header {
+            // Add Host header if not already present, or replace if it is
+            headers.retain(|(k, _)| !k.eq_ignore_ascii_case("Host"));
+            headers.push(("Host".to_string(), host));
+        }
         let body = match self.method {
             Method::GET | Method::DELETE => None,
             _ => {
@@ -413,7 +428,7 @@ impl AppState {
             }
         };
         let _ = self.tx.send(UserAction::SendRequest {
-            url: self.url.clone(),
+            url: final_url,
             method: self.method,
             headers,
             body,
@@ -802,6 +817,45 @@ impl AppState {
                 }
             }
         }
+    }
+
+    /// Rewrites URLs with .localhost domains to use localhost, returning (rewritten_url, host_header)
+    fn rewrite_localhost_url(url: &str) -> (String, Option<String>) {
+        // Parse the URL
+        if let Ok(parsed) = url::Url::parse(url) {
+            if let Some(host) = parsed.host_str() {
+                // Check if host is localhost or ends with .localhost
+                if host == "localhost" || host.ends_with(".localhost") {
+                    // Get the port if present
+                    let port_part = if let Some(port) = parsed.port() {
+                        format!(":{}", port)
+                    } else {
+                        String::new()
+                    };
+
+                    // Rebuild URL with localhost (preserves Docker/K8s routing)
+                    let new_url = format!(
+                        "{}://localhost{}{}{}",
+                        parsed.scheme(),
+                        port_part,
+                        parsed.path(),
+                        parsed.query().map(|q| format!("?{}", q)).unwrap_or_default()
+                    );
+
+                    // Return the rewritten URL and the original host for the Host header
+                    let host_with_port = if parsed.port().is_some() {
+                        format!("{}{}", host, port_part)
+                    } else {
+                        host.to_string()
+                    };
+
+                    return (new_url, Some(host_with_port));
+                }
+            }
+        }
+
+        // No rewrite needed
+        (url.to_string(), None)
     }
 
     fn method_string(&self) -> String { match self.method { Method::GET=>"GET".into(), Method::POST=>"POST".into(), Method::PUT=>"PUT".into(), Method::PATCH=>"PATCH".into(), Method::DELETE=>"DELETE".into() } }
