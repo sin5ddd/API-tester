@@ -299,12 +299,25 @@ pub fn parse_curl(input: &str) -> Option<ParsedCurl> {
             "-H" | "--header" => { i+=1; if i<tokens.len() { if let Some((k,v)) = tokens[i].split_once(':') { headers.push((k.trim().into(), v.trim().into())); } } },
             "-d" | "--data" | "--data-raw" | "--data-binary" => { i+=1; if i<tokens.len() { body = Some(tokens[i].clone()); } },
             _ => {
-                if t.starts_with("http://") || t.starts_with("https://") { url = t.clone(); }
+                // Accept any token that looks like a URL (has dot, colon, or starts with known patterns)
+                if t.contains('.') || t.contains(':') || t.starts_with("http://") || t.starts_with("https://") || t == "localhost" {
+                    url = t.clone();
+                }
             }
         }
         i+=1;
     }
-    if url.is_empty() { None } else { Some(ParsedCurl{url, method, headers, body}) }
+    if url.is_empty() {
+        None
+    } else {
+        // Normalize URL: add http:// if no scheme present
+        let normalized_url = if !url.starts_with("http://") && !url.starts_with("https://") {
+            format!("http://{}", url)
+        } else {
+            url
+        };
+        Some(ParsedCurl{url: normalized_url, method, headers, body})
+    }
 }
 
 pub fn parse_method(s: &str) -> Method {
