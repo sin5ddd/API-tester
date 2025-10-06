@@ -200,7 +200,11 @@ impl eframe::App for AppState {
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label("URL:");
-                ui.add_sized([500.0, 22.0], TextEdit::singleline(&mut self.url));
+                let url_response = ui.add_sized([500.0, 22.0], TextEdit::singleline(&mut self.url));
+                if url_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    self.send_current_request();
+                    self.last_poll_instant = Some(Instant::now());
+                }
                 egui::ComboBox::from_label("")
                     .selected_text(match self.method { Method::GET=>"GET",Method::POST=>"POST",Method::PUT=>"PUT",Method::PATCH=>"PATCH",Method::DELETE=>"DELETE" })
                     .show_ui(ui, |ui| {
