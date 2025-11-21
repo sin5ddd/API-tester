@@ -501,7 +501,7 @@ impl AppState {
         let mut filtered: Option<Value> = None;
         if let Ok(v) = serde_json::from_str::<Value>(&self.jsonpath_result) { filtered = Some(v); }
         else if let Ok(v) = serde_json::from_str::<Value>(&self.jmespath_result) { filtered = Some(v); }
-        egui::ScrollArea::vertical().auto_shrink([true; 2]).show(ui, |ui| {
+        egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
             if let Some(v) = filtered.as_ref() {
                 render_value(ui, "root", v, "", true, &self.changed_ops, &self.prev_values);
             } else {
